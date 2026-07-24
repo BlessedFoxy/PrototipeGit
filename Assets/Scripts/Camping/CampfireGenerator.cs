@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using UnityEngine.Splines;
 using Unity.Mathematics;
 using System.Collections.Generic;
 
@@ -10,12 +11,13 @@ public class CampfireGenerator : MonoBehaviour
 {
     [Header("Ссылки")]
     public RoadGeneratorEditor roadGenerator;
+    public SplineContainer splineContainer;      // ← ДОБАВЛЯЕМ прямую ссылку на сплайн
     public GameObject campfirePrefab;
 
     [Header("Настройки лагерей")]
-    public float startSpacing = 100f;        // Первый лагерь через 100м
-    public float spacingIncrease = 100f;     // Каждый раз +100м
-    public float maxSpacing = 500f;          // Максимальное расстояние
+    public float startSpacing = 100f;
+    public float spacingIncrease = 100f;
+    public float maxSpacing = 500f;
     public float campfireOffset = 10f;
     public float campfireMinDistance = 30f;
 
@@ -30,10 +32,7 @@ public class CampfireGenerator : MonoBehaviour
         if (autoGenerateInEditor && !Application.isPlaying)
         {
             EditorApplication.delayCall += () => {
-                if (this != null)
-                {
-                    RegenerateCampfires();
-                }
+                if (this != null) RegenerateCampfires();
             };
         }
     }
@@ -51,6 +50,12 @@ public class CampfireGenerator : MonoBehaviour
             }
         }
 
+        // Если сплайн не назначен, берём из RoadGenerator
+        if (splineContainer == null && roadGenerator != null)
+        {
+            splineContainer = roadGenerator.splineContainer;
+        }
+
         GenerateCampfires();
     }
 
@@ -64,96 +69,199 @@ public class CampfireGenerator : MonoBehaviour
             return;
         }
 
-        if (roadGenerator == null)
+        // ============================================
+        // ✅ ПОЛУЧАЕМ ДЛИНУ ИЗ СПЛАЙНА
+        // ============================================
+        float roadLength = GetRoadLength();
+
+        if (roadLength <= 1f)
         {
-            Debug.LogError("[CampfireGenerator] RoadGenerator is null!");
+            Debug.LogError($"[CampfireGenerator] Invalid road length: {roadLength}m!");
             return;
         }
 
-        float roadLength = roadGenerator.GetRoadLength();
-        Debug.Log($"[CampfireGenerator] Road length: {roadLength}m");
+        Debug.Log($"[CampfireGenerator] Road length: {roadLength:F0}m");
 
         // ============================================
-        // РАСЧЁТ РАССТОЯНИЯ МЕЖДУ ЛАГЕРЯМИ
+        // ✅ РАСЧЁТ РАССТОЯНИЯ МЕЖДУ ЛАГЕРЯМИ
         // ============================================
         float currentSpacing = startSpacing;
-        float distance = 0f;
+        float distance = currentSpacing;  // ← Начинаем с первого интервала!
         int campfireCount = 0;
 
         while (distance < roadLength - campfireMinDistance)
         {
-            // Увеличиваем дистанцию
-            distance += currentSpacing;
+            // ============================================
+            // ✅ ПОЛУЧАЕМ ТОЧКУ НА СПЛАЙНЕ
+            // ============================================
+            float t = distance / roadLength;  // ← Нормализованное расстояние (0-1)
 
-            // Проверяем, не вышли ли за пределы дороги
-            if (distance > roadLength - campfireMinDistance)
-                break;
+            Vector3 worldPos = GetPointOnSpline(t);
 
-            // Получаем точку на дороге
-            float3 pos = roadGenerator.GetRoadPoint(distance);
-            pos.y += 0.5f;
+            if (worldPos == Vector3.zero)
+            {
+                Debug.LogWarning($"[CampfireGenerator] Failed to get point at t={t:F3}, distance={distance:F0}m");
+                currentSpacing = Mathf.Min(currentSpacing + spacingIncrease, maxSpacing);
+                distance += currentSpacing;
+                continue;
+            }
 
-            // Направление
-            float3 tangent = GetTangentAtDistance(distance);
-            float3 right = math.normalize(math.cross(tangent, new float3(0f, 1f, 0f)));
-            if (math.lengthsq(right) < 0.001f)
-                right = new float3(1f, 0f, 0f);
+            // Проверяем высоту
+            if (worldPos.y > 15f || worldPos.y < -5f)
+            {
+                Debug.Log($"[CampfireGenerator] Skipping campfire at {distance:F0}m (bad height: {worldPos.y:F1})");
+                currentSpacing = Mathf.Min(currentSpacing + spacingIncrease, maxSpacing);
+                distance += currentSpacing;
+                continue;
+            }
+
+            // ============================================
+            // ✅ ВЫЧИСЛЯЕМ НАПРАВЛЕНИЕ
+            // ============================================
+            Vector3 tangent = GetTangentOnSpline(t);
+            Vector3 right = Vector3.Cross(tangent, Vector3.up).normalized;
+            if (right.magnitude < 0.001f) right = Vector3.right;
 
             // Чередуем стороны
             float side = (campfireCount % 2 == 0) ? 1f : -1f;
-            float3 campPos = pos + right * side * campfireOffset;
+            Vector3 campPos = worldPos + right * side * campfireOffset;
 
-            if (campPos.y > 15f || campPos.y < -3f)
+            // Проверяем позицию
+            if (campPos.y > 15f || campPos.y < -5f)
             {
-                // Если позиция плохая — пробуем другую сторону
                 side = -side;
-                campPos = pos + right * side * campfireOffset;
-                if (campPos.y > 15f || campPos.y < -3f)
+                campPos = worldPos + right * side * campfireOffset;
+                if (campPos.y > 15f || campPos.y < -5f)
                 {
-                    // Если всё равно плохо — пропускаем
                     Debug.Log($"[CampfireGenerator] Skipping campfire at {distance:F0}m (bad position)");
-                    // Увеличиваем spacing для следующего
                     currentSpacing = Mathf.Min(currentSpacing + spacingIncrease, maxSpacing);
+                    distance += currentSpacing;
                     continue;
                 }
             }
 
-            // Создаём лагерь
+            // ============================================
+            // ✅ СОЗДАЁМ ЛАГЕРЬ
+            // ============================================
             GameObject camp = Instantiate(campfirePrefab, campPos, Quaternion.identity, transform);
+
+            // Настраиваем Campfire компонент
+            Campfire campfireScript = camp.GetComponent<Campfire>();
+            if (campfireScript == null)
+            {
+                campfireScript = camp.AddComponent<Campfire>();
+            }
+
+            // Инициализируем с ссылкой на генератор и расстоянием
+            campfireScript.Initialize(roadGenerator, distance);
+
+            // Поворачиваем к дороге
             camp.transform.forward = tangent;
+
             campfires.Add(camp);
             campfireCount++;
 
-            Debug.Log($"[CampfireGenerator] Campfire #{campfireCount} at {distance:F0}m, spacing: {currentSpacing:F0}m, side: {(side > 0 ? "right" : "left")}");
+            Debug.Log($"[CampfireGenerator] Campfire #{campfireCount} at {distance:F0}m (t={t:F3}), side: {(side > 0 ? "right" : "left")}, spacing: {currentSpacing:F0}m");
 
             // Увеличиваем расстояние для следующего лагеря
             currentSpacing = Mathf.Min(currentSpacing + spacingIncrease, maxSpacing);
+            distance += currentSpacing;
         }
 
-        Debug.Log($"[CampfireGenerator] Total campfires: {campfireCount}");
-        Debug.Log($"[CampfireGenerator] Final spacing: {currentSpacing:F0}m");
+        Debug.Log($"[CampfireGenerator] ✅ Total campfires: {campfireCount} on {roadLength:F0}m road");
     }
 
-    float3 GetTangentAtDistance(float distance)
+    // ============================================
+    // ✅ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ РАБОТЫ СО СПЛАЙНОМ
+    // ============================================
+
+    float GetRoadLength()
     {
-        float roadLength = roadGenerator.GetRoadLength();
-        float step = Mathf.Max(0.5f, roadLength / 100f);
-
-        float3 p1 = roadGenerator.GetRoadPoint(distance);
-        float3 p2 = roadGenerator.GetRoadPoint(Mathf.Min(distance + step, roadLength - 0.1f));
-
-        float3 tangent = p2 - p1;
-
-        if (math.lengthsq(tangent) < 0.0001f)
+        // Пробуем получить длину из сплайна
+        if (splineContainer != null && splineContainer.Spline != null)
         {
-            float3 p0 = roadGenerator.GetRoadPoint(Mathf.Max(distance - step, 0.1f));
-            tangent = p1 - p0;
+            try
+            {
+                return SplineUtility.CalculateLength(splineContainer.Spline, splineContainer.transform.localToWorldMatrix);
+            }
+            catch
+            {
+                // Если ошибка - пробуем другой способ
+            }
         }
 
-        if (math.lengthsq(tangent) < 0.0001f)
-            return new float3(0f, 0f, 1f);
+        // Если есть RoadGenerator - используем его
+        if (roadGenerator != null)
+        {
+            return roadGenerator.GetRoadLength();
+        }
 
-        return math.normalize(tangent);
+        return 0f;
+    }
+
+    Vector3 GetPointOnSpline(float t)
+    {
+        // Приоритет 1: SplineContainer
+        if (splineContainer != null && splineContainer.Spline != null)
+        {
+            try
+            {
+                float3 pos = splineContainer.EvaluatePosition(t);
+                return new Vector3(pos.x, pos.y, pos.z);
+            }
+            catch
+            {
+                // Если ошибка - пробуем другой способ
+            }
+        }
+
+        // Приоритет 2: RoadGenerator
+        if (roadGenerator != null)
+        {
+            float distance = t * roadGenerator.GetRoadLength();
+            float3 pos = roadGenerator.GetRoadPoint(distance);
+            return new Vector3(pos.x, pos.y, pos.z);
+        }
+
+        return Vector3.zero;
+    }
+
+    Vector3 GetTangentOnSpline(float t)
+    {
+        // Приоритет 1: SplineContainer
+        if (splineContainer != null && splineContainer.Spline != null)
+        {
+            try
+            {
+                float3 tangent = splineContainer.EvaluateTangent(t);
+                if (math.length(tangent) > 0.001f)
+                {
+                    tangent = math.normalize(tangent);
+                    return new Vector3(tangent.x, tangent.y, tangent.z);
+                }
+            }
+            catch { }
+        }
+
+        // Приоритет 2: RoadGenerator
+        if (roadGenerator != null)
+        {
+            float roadLength = roadGenerator.GetRoadLength();
+            float step = Mathf.Max(0.5f, roadLength / 100f);
+            float distance = t * roadLength;
+
+            float3 p1 = roadGenerator.GetRoadPoint(Mathf.Max(distance - step, 0.1f));
+            float3 p2 = roadGenerator.GetRoadPoint(Mathf.Min(distance + step, roadLength - 0.1f));
+
+            float3 tangent = p2 - p1;
+            if (math.length(tangent) > 0.001f)
+            {
+                tangent = math.normalize(tangent);
+                return new Vector3(tangent.x, tangent.y, tangent.z);
+            }
+        }
+
+        return Vector3.forward;
     }
 
     public void ClearCampfires()
@@ -163,10 +271,8 @@ public class CampfireGenerator : MonoBehaviour
             if (obj != null)
             {
 #if UNITY_EDITOR
-                if (!Application.isPlaying)
-                    DestroyImmediate(obj);
-                else
-                    Destroy(obj);
+                if (!Application.isPlaying) DestroyImmediate(obj);
+                else Destroy(obj);
 #else
                 Destroy(obj);
 #endif
@@ -179,7 +285,7 @@ public class CampfireGenerator : MonoBehaviour
     [ContextMenu("Regenerate Campfires")]
     public void RegenerateCampfires()
     {
-        Debug.Log("[CampfireGenerator] Regenerating...");
+        Debug.Log("[CampfireGenerator] 🔄 Regenerating campfires...");
         ClearCampfires();
         GenerateCampfires();
         EditorUtility.SetDirty(this);
@@ -188,9 +294,55 @@ public class CampfireGenerator : MonoBehaviour
     [ContextMenu("Clear All Campfires")]
     public void ClearAllCampfires()
     {
-        Debug.Log("[CampfireGenerator] Clearing all...");
+        Debug.Log("[CampfireGenerator] 🗑️ Clearing all campfires...");
         ClearCampfires();
         EditorUtility.SetDirty(this);
+    }
+
+    // ============================================
+    // ✅ ВИЗУАЛИЗАЦИЯ В РЕДАКТОРЕ
+    // ============================================
+    void OnDrawGizmosSelected()
+    {
+        if (splineContainer == null || splineContainer.Spline == null) return;
+
+        float roadLength = GetRoadLength();
+        if (roadLength <= 1f) return;
+
+        Gizmos.color = Color.yellow;
+
+        // Показываем все позиции для лагерей
+        float spacing = startSpacing;
+        float distance = spacing;
+        int count = 0;
+
+        while (distance < roadLength - campfireMinDistance)
+        {
+            float t = distance / roadLength;
+            Vector3 pos = GetPointOnSpline(t);
+
+            if (pos != Vector3.zero)
+            {
+                Gizmos.DrawWireSphere(pos, 2f);
+
+                // Показываем смещение в стороны
+                Vector3 tangent = GetTangentOnSpline(t);
+                Vector3 right = Vector3.Cross(tangent, Vector3.up).normalized;
+                if (right.magnitude < 0.001f) right = Vector3.right;
+
+                float side = (count % 2 == 0) ? 1f : -1f;
+                Vector3 leftPos = pos + right * side * campfireOffset;
+
+                Gizmos.color = Color.green;
+                Gizmos.DrawWireSphere(leftPos, 1f);
+                Gizmos.DrawLine(pos, leftPos);
+                Gizmos.color = Color.yellow;
+            }
+
+            spacing = Mathf.Min(spacing + spacingIncrease, maxSpacing);
+            distance += spacing;
+            count++;
+        }
     }
 #endif
 }

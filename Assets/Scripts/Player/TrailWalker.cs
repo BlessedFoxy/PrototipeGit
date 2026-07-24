@@ -13,6 +13,7 @@ public class TrailWalker : MonoBehaviour
     [Header("Текущая скорость")]
     public float currentSpeed;
 
+    private Animator animator;                    // ← ДОБАВЛЕНО
     private float targetSpeed;
     private float currentDistance = 0f;
     private float splineLength;
@@ -25,14 +26,24 @@ public class TrailWalker : MonoBehaviour
             return;
         }
 
-        // ✅ ИСПРАВЛЕНО: расчёт длины сплайна
+        // ← ДОБАВЛЕНО: получаем Animator
+        animator = GetComponent<Animator>();
+
         splineLength = CalculateSplineLength();
         targetSpeed = defaultWalkSpeed;
         currentSpeed = defaultWalkSpeed;
+
+        // ← ДОБАВЛЕНО: начальная настройка анимаций
+        if (animator != null)
+        {
+            animator.SetBool("IsSitting", false);
+            animator.SetBool("IsWalking", true);
+            animator.SetFloat("Speed", currentSpeed);
+        }
+
         Debug.Log($"Длина тропы: {splineLength} метров");
     }
 
-    // ✅ НОВЫЙ МЕТОД ДЛЯ РАСЧЁТА ДЛИНЫ СПЛАЙНА
     private float CalculateSplineLength()
     {
         if (trailSpline == null || trailSpline.Spline == null) return 100f;
@@ -61,7 +72,9 @@ public class TrailWalker : MonoBehaviour
     {
         if (trailSpline == null || splineLength <= 0f) return;
 
-        // 1. Управление с клавиатуры (для тестов)
+        // ============================================
+        // 1. УПРАВЛЕНИЕ (НЕ ТРОГАЮ!)
+        // ============================================
         if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow))
         {
             targetSpeed = Input.GetKey(KeyCode.LeftShift) ? maxRunSpeed : defaultWalkSpeed;
@@ -71,42 +84,86 @@ public class TrailWalker : MonoBehaviour
             targetSpeed = 0f;
         }
 
-        // 2. Плавное изменение скорости
+        // ============================================
+        // 2. ПЛАВНОЕ ИЗМЕНЕНИЕ СКОРОСТИ (НЕ ТРОГАЮ!)
+        // ============================================
         currentSpeed = Mathf.Lerp(currentSpeed, targetSpeed, Time.deltaTime * 5f);
 
-        // 3. Движение по сплайну
+        // ============================================
+        // 3. ДВИЖЕНИЕ ПО СПЛАЙНУ (НЕ ТРОГАЮ!)
+        // ============================================
         currentDistance += currentSpeed * Time.deltaTime;
 
-        // Зацикливание
         if (currentDistance >= splineLength)
         {
             currentDistance = 0f;
         }
 
-        // 4. Получаем позицию и направление
+        // ============================================
+        // 4. ПОЗИЦИЯ И ПОВОРОТ (НЕ ТРОГАЮ!)
+        // ============================================
         float t = currentDistance / splineLength;
 
-        // ✅ ИСПРАВЛЕНО: используем EvaluatePosition и EvaluateTangent
         float3 position = trailSpline.Spline.EvaluatePosition(t);
         float3 tangent = trailSpline.Spline.EvaluateTangent(t);
 
-        // Двигаем персонажа
         transform.position = (Vector3)position + Vector3.up * heightOffset;
 
-        // Поворот
         Vector3 flatTangent = new Vector3(tangent.x, 0f, tangent.z).normalized;
         if (flatTangent != Vector3.zero)
         {
             transform.forward = flatTangent;
         }
+
+        // ============================================
+        // 5. 🔥 ТОЛЬКО ДОБАВЛЕНО: УПРАВЛЕНИЕ АНИМАЦИЕЙ
+        // ============================================
+        if (animator != null)
+        {
+            float speed = Mathf.Abs(currentSpeed);
+
+            // Обновляем параметры анимации
+            animator.SetFloat("Speed", speed);
+            animator.SetBool("IsWalking", speed > 0.05f);
+
+            // Если скорость = 0 и мы не сидим → переходим в Idle
+            if (speed < 0.05f && !animator.GetBool("IsSitting"))
+            {
+                AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+                if (stateInfo.IsName("Walk"))
+                {
+                    animator.Play("Idle", 0, 0f);
+                }
+            }
+        }
     }
 
-    // === МЕТОД ДЛЯ УПРАВЛЕНИЯ СКОРОСТЬЮ ИЗ CAMERA FOLLOW ===
+    // ============================================
+    // ПУБЛИЧНЫЕ МЕТОДЫ (ДОБАВЛЕНЫ ДЛЯ КОСТРА)
+    // ============================================
+
     public void SetSpeed(float speed)
     {
         targetSpeed = Mathf.Clamp(speed, 0f, maxRunSpeed);
     }
 
+    public void SetSitting(bool sitting)
+    {
+        if (animator != null)
+        {
+            animator.SetBool("IsSitting", sitting);
+        }
+    }
+
     public float GetCurrentSpeed() => currentSpeed;
-    public float GetCurrentDistance() => currentDistance;
+    public float GetCurrentDistance()
+    {
+        return currentDistance;
+    }
+    public void SetDistance(float distance)
+    {
+        currentDistance = Mathf.Clamp(distance, 0f, splineLength);
+        Debug.Log($"[TrailWalker] Дистанция установлена: {currentDistance:F1}m");
+    }
 }
+
