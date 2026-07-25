@@ -1,0 +1,74 @@
+/* Основная панель рюкзака */
+.backpack-panel {
+    background-color: rgba(20, 20, 30, 0.95);
+    border-radius: 16px;
+    padding: 20px;
+    min-width: 400px;
+    min-height: 500px;
+}
+
+.title {
+    font-size: 24px;
+    color: white;
+    -unity-text-align: middle-center;
+    margin-bottom: 16px;
+}
+
+.grid-container {
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 8px;
+    background-color: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+}
+
+.cell {
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+}
+
+.cell:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.item {
+    background-color: rgba(60, 120, 200, 0.85);
+    border: 2px solid rgba(100, 180, 255, 0.8);
+    border-radius: 6px;
+    position: absolute;
+}
+
+.item:hover {
+    border-color: rgba(255, 200, 100, 1);
+}
+
+.ghost-item {
+    background-color: rgba(100, 255, 100, 0.4);
+    border: 2px dashed rgba(100, 255, 100, 0.8);
+    border-radius: 6px;
+    position: absolute;
+    pointer-events: none;
+}
+
+.ghost-item.invalid {
+    background-color: rgba(255, 100, 100, 0.4);
+    border-color: rgba(255, 100, 100, 0.8);
+}
+
+.fill-indicator {
+    height: 20px;
+    background-color: rgba(0, 0, 0, 0.4);
+    border-radius: 10px;
+    margin-top: 16px;
+    overflow: hidden;
+}
+
+.fill-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50, #8BC34A);
+    border-radius: 10px;
+    width: 0%;
+    transition: width 0.3s ease;
+}

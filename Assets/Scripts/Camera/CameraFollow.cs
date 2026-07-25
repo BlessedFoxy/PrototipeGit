@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using UnityEngine.EventSystems;
 
 public class CameraFollow : MonoBehaviour
 {
@@ -24,11 +25,12 @@ public class CameraFollow : MonoBehaviour
     [SerializeField] private float minSwipeDistance = 5f;
 
     [Header("Управление скоростью (тач)")]
-    [SerializeField] private float speedSensitivity = 0.05f; // Увеличьте до 0.1f, если медленно
+    [SerializeField] private float speedSensitivity = 0.05f;
     [SerializeField] private float minSpeed = 0f;
-    [SerializeField] private float maxSpeed = 6f;            // Должно совпадать с maxRunSpeed в TrailWalker
-    [SerializeField] private float currentSpeed = 2f;
-    [SerializeField] private float targetSpeed = 2f;
+    [SerializeField] private float maxSpeed = 6f;
+    
+    [Header("Наклон камеры")]
+    [SerializeField] private float pitchAngle = 20f; //
 
     private Vector3 currentVelocity = Vector3.zero;
     private float lastInputTime = 0f;
@@ -38,6 +40,8 @@ public class CameraFollow : MonoBehaviour
     private Vector2 interactionStartPos;
 
     private TrailWalker trailWalker;
+    private float currentSpeed = 2f;
+    private float targetSpeed = 2f;
 
     private void Start()
     {
@@ -51,20 +55,13 @@ public class CameraFollow : MonoBehaviour
         {
             trailWalker = target.GetComponent<TrailWalker>();
             if (trailWalker == null)
-            {
                 trailWalker = target.GetComponentInChildren<TrailWalker>();
-            }
-            
+
             if (trailWalker != null)
             {
-                // ИСПРАВЛЕНО: используем defaultWalkSpeed вместо несуществующего baseSpeed
                 currentSpeed = trailWalker.defaultWalkSpeed;
                 targetSpeed = currentSpeed;
-                Debug.Log("[Camera] TrailWalker найден и подключен!");
-            }
-            else
-            {
-                Debug.LogWarning("[Camera] TrailWalker не найден на персонаже!");
+                Debug.Log("[Camera] TrailWalker найден!");
             }
         }
 
@@ -72,9 +69,44 @@ public class CameraFollow : MonoBehaviour
         UpdateCameraPosition();
     }
 
-    private void Update()
+    // ============================================
+    // ✅ УСИЛЕННАЯ ПРОВЕРКА НА UI
+    // ============================================
+    private bool IsPointerOverUI()
     {
+        // 1. Проверка для мыши (ПК)
+        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
+            return true;
+
+        // 2. Проверка для тачей (мобилка)
+        if (Input.touchCount > 0)
+        {
+            for (int i = 0; i < Input.touchCount; i++)
+            {
+                Touch touch = Input.GetTouch(i);
+                if (touch.phase == TouchPhase.Began || touch.phase == TouchPhase.Moved)
+                {
+                    if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(touch.fingerId))
+                        return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    void Update()
+    {
+        // ← ЕСЛИ ТАПНУЛИ ПО UI — КАМЕРА НЕ РЕАГИРУЕТ
+        if (IsPointerOverUI())
+        {
+            // Если был тач по UI — сбрасываем взаимодействие
+            isInteracting = false;
+            return;
+        }
+
         if (target == null) return;
+
         HandleKeyboardInput();
         HandleTouchAndMouseInput();
     }
@@ -88,7 +120,6 @@ public class CameraFollow : MonoBehaviour
 
     private void HandleKeyboardInput()
     {
-        // ПОВОРОТ (A/D)
         float rotationInput = 0f;
         if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)) rotationInput = -1f;
         else if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) rotationInput = 1f;
@@ -100,7 +131,6 @@ public class CameraFollow : MonoBehaviour
             isReturning = false;
         }
 
-        // СКОРОСТЬ (W/S) - только если есть TrailWalker
         if (trailWalker != null)
         {
             float speedInput = 0f;
@@ -122,7 +152,6 @@ public class CameraFollow : MonoBehaviour
         bool isPressed = false;
         Vector2 currentPos = Vector2.zero;
 
-        // 1. Проверка тача
         if (Input.touchCount > 0)
         {
             Touch touch = Input.GetTouch(0);
@@ -142,7 +171,6 @@ public class CameraFollow : MonoBehaviour
                 isInteracting = false;
             }
         }
-        // 2. Проверка мыши (для тестов в редакторе)
         else if (Input.GetMouseButton(0))
         {
             if (Input.GetMouseButtonDown(0))
@@ -162,7 +190,6 @@ public class CameraFollow : MonoBehaviour
             isInteracting = false;
         }
 
-        // 3. Логика вращения (горизонтальный свайп)
         if (isPressed && isInteracting)
         {
             float deltaX = currentPos.x - interactionStartPos.x;
@@ -173,28 +200,24 @@ public class CameraFollow : MonoBehaviour
                 currentAngle += rotationDelta;
                 lastInputTime = Time.time;
                 isReturning = false;
-                interactionStartPos = currentPos; // Сброс для непрерывного вращения
-            }
-        }
-
-        // 4. Логика скорости (вертикальный свайп)
-        if (trailWalker != null && isInteracting && isPressed)
-        {
-            float deltaY = currentPos.y - interactionStartPos.y;
-
-            if (Mathf.Abs(deltaY) > minSwipeDistance)
-            {
-                // deltaY > 0 (свайп вверх) = ускоряемся
-                // deltaY < 0 (свайп вниз) = замедляемся
-                float speedDelta = deltaY * speedSensitivity;
-                targetSpeed += speedDelta;
-                targetSpeed = Mathf.Clamp(targetSpeed, minSpeed, maxSpeed);
-                
-                trailWalker.SetSpeed(targetSpeed);
-                currentSpeed = targetSpeed;
-                
-                // Сброс для непрерывного изменения скорости
                 interactionStartPos = currentPos;
+            }
+
+            if (trailWalker != null)
+            {
+                float deltaY = currentPos.y - interactionStartPos.y;
+
+                if (Mathf.Abs(deltaY) > minSwipeDistance)
+                {
+                    float speedDelta = deltaY * speedSensitivity;
+                    targetSpeed += speedDelta;
+                    targetSpeed = Mathf.Clamp(targetSpeed, minSpeed, maxSpeed);
+
+                    trailWalker.SetSpeed(targetSpeed);
+                    currentSpeed = targetSpeed;
+
+                    interactionStartPos = currentPos;
+                }
             }
         }
     }
@@ -239,8 +262,14 @@ public class CameraFollow : MonoBehaviour
         );
 
         transform.LookAt(target.position + Vector3.up * 1.5f);
+        transform.Rotate(Vector3.right, pitchAngle);
     }
 
-    public void SetAngle(float angle) { currentAngle = angle; targetAngle = angle; }
+    public void SetAngle(float angle)
+    {
+        currentAngle = angle;
+        targetAngle = angle;
+    }
+
     public float GetAngle() => currentAngle;
 }
