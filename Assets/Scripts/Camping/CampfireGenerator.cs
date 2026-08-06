@@ -11,7 +11,7 @@ public class CampfireGenerator : MonoBehaviour
 {
     [Header("Ссылки")]
     public RoadGeneratorEditor roadGenerator;
-    public SplineContainer splineContainer;      // ← ДОБАВЛЯЕМ прямую ссылку на сплайн
+    public SplineContainer splineContainer;
     public GameObject campfirePrefab;
 
     [Header("Настройки лагерей")]
@@ -50,7 +50,6 @@ public class CampfireGenerator : MonoBehaviour
             }
         }
 
-        // Если сплайн не назначен, берём из RoadGenerator
         if (splineContainer == null && roadGenerator != null)
         {
             splineContainer = roadGenerator.splineContainer;
@@ -69,101 +68,73 @@ public class CampfireGenerator : MonoBehaviour
             return;
         }
 
-        // ============================================
-        // ✅ ПОЛУЧАЕМ ДЛИНУ ИЗ СПЛАЙНА
-        // ============================================
         float roadLength = GetRoadLength();
-
         if (roadLength <= 1f)
         {
-            Debug.LogError($"[CampfireGenerator] Invalid road length: {roadLength}m!");
+            Debug.LogError($"[CampfireGenerator] Invalid road length: {roadLength:F0}m!");
             return;
         }
 
         Debug.Log($"[CampfireGenerator] Road length: {roadLength:F0}m");
 
-        // ============================================
-        // ✅ РАСЧЁТ РАССТОЯНИЯ МЕЖДУ ЛАГЕРЯМИ
-        // ============================================
         float currentSpacing = startSpacing;
-        float distance = currentSpacing;  // ← Начинаем с первого интервала!
+        float distance = currentSpacing;
         int campfireCount = 0;
 
         while (distance < roadLength - campfireMinDistance)
         {
-            // ============================================
-            // ✅ ПОЛУЧАЕМ ТОЧКУ НА СПЛАЙНЕ
-            // ============================================
-            float t = distance / roadLength;  // ← Нормализованное расстояние (0-1)
-
+            float t = distance / roadLength;
             Vector3 worldPos = GetPointOnSpline(t);
 
             if (worldPos == Vector3.zero)
             {
-                Debug.LogWarning($"[CampfireGenerator] Failed to get point at t={t:F3}, distance={distance:F0}m");
                 currentSpacing = Mathf.Min(currentSpacing + spacingIncrease, maxSpacing);
                 distance += currentSpacing;
                 continue;
             }
 
-            // Проверяем высоту
             if (worldPos.y > 15f || worldPos.y < -5f)
             {
-                Debug.Log($"[CampfireGenerator] Skipping campfire at {distance:F0}m (bad height: {worldPos.y:F1})");
                 currentSpacing = Mathf.Min(currentSpacing + spacingIncrease, maxSpacing);
                 distance += currentSpacing;
                 continue;
             }
 
-            // ============================================
-            // ✅ ВЫЧИСЛЯЕМ НАПРАВЛЕНИЕ
-            // ============================================
             Vector3 tangent = GetTangentOnSpline(t);
             Vector3 right = Vector3.Cross(tangent, Vector3.up).normalized;
             if (right.magnitude < 0.001f) right = Vector3.right;
 
-            // Чередуем стороны
             float side = (campfireCount % 2 == 0) ? 1f : -1f;
             Vector3 campPos = worldPos + right * side * campfireOffset;
 
-            // Проверяем позицию
             if (campPos.y > 15f || campPos.y < -5f)
             {
                 side = -side;
                 campPos = worldPos + right * side * campfireOffset;
                 if (campPos.y > 15f || campPos.y < -5f)
                 {
-                    Debug.Log($"[CampfireGenerator] Skipping campfire at {distance:F0}m (bad position)");
                     currentSpacing = Mathf.Min(currentSpacing + spacingIncrease, maxSpacing);
                     distance += currentSpacing;
                     continue;
                 }
             }
 
-            // ============================================
-            // ✅ СОЗДАЁМ ЛАГЕРЬ
-            // ============================================
             GameObject camp = Instantiate(campfirePrefab, campPos, Quaternion.identity, transform);
 
-            // Настраиваем Campfire компонент
             Campfire campfireScript = camp.GetComponent<Campfire>();
             if (campfireScript == null)
             {
                 campfireScript = camp.AddComponent<Campfire>();
             }
 
-            // Инициализируем с ссылкой на генератор и расстоянием
             campfireScript.Initialize(roadGenerator, distance);
-
-            // Поворачиваем к дороге
             camp.transform.forward = tangent;
 
             campfires.Add(camp);
             campfireCount++;
 
-            Debug.Log($"[CampfireGenerator] Campfire #{campfireCount} at {distance:F0}m (t={t:F3}), side: {(side > 0 ? "right" : "left")}, spacing: {currentSpacing:F0}m");
+            Debug.Log($"[CampfireGenerator] Campfire #{campfireCount} at {distance:F0}m (t={t:F3}), side: {(side > 0 ? "right" : "left")}");
 
-            // Увеличиваем расстояние для следующего лагеря
             currentSpacing = Mathf.Min(currentSpacing + spacingIncrease, maxSpacing);
             distance += currentSpacing;
         }
@@ -171,26 +142,17 @@ public class CampfireGenerator : MonoBehaviour
         Debug.Log($"[CampfireGenerator] ✅ Total campfires: {campfireCount} on {roadLength:F0}m road");
     }
 
-    // ============================================
-    // ✅ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ РАБОТЫ СО СПЛАЙНОМ
-    // ============================================
-
-    float GetRoadLength()
+    private float GetRoadLength()
     {
-        // Пробуем получить длину из сплайна
         if (splineContainer != null && splineContainer.Spline != null)
         {
             try
             {
                 return SplineUtility.CalculateLength(splineContainer.Spline, splineContainer.transform.localToWorldMatrix);
             }
-            catch
-            {
-                // Если ошибка - пробуем другой способ
-            }
+            catch { }
         }
 
-        // Если есть RoadGenerator - используем его
         if (roadGenerator != null)
         {
             return roadGenerator.GetRoadLength();
@@ -199,9 +161,8 @@ public class CampfireGenerator : MonoBehaviour
         return 0f;
     }
 
-    Vector3 GetPointOnSpline(float t)
+    private Vector3 GetPointOnSpline(float t)
     {
-        // Приоритет 1: SplineContainer
         if (splineContainer != null && splineContainer.Spline != null)
         {
             try
@@ -209,13 +170,9 @@ public class CampfireGenerator : MonoBehaviour
                 float3 pos = splineContainer.EvaluatePosition(t);
                 return new Vector3(pos.x, pos.y, pos.z);
             }
-            catch
-            {
-                // Если ошибка - пробуем другой способ
-            }
+            catch { }
         }
 
-        // Приоритет 2: RoadGenerator
         if (roadGenerator != null)
         {
             float distance = t * roadGenerator.GetRoadLength();
@@ -226,9 +183,8 @@ public class CampfireGenerator : MonoBehaviour
         return Vector3.zero;
     }
 
-    Vector3 GetTangentOnSpline(float t)
+    private Vector3 GetTangentOnSpline(float t)
     {
-        // Приоритет 1: SplineContainer
         if (splineContainer != null && splineContainer.Spline != null)
         {
             try
@@ -243,7 +199,6 @@ public class CampfireGenerator : MonoBehaviour
             catch { }
         }
 
-        // Приоритет 2: RoadGenerator
         if (roadGenerator != null)
         {
             float roadLength = roadGenerator.GetRoadLength();
@@ -299,9 +254,6 @@ public class CampfireGenerator : MonoBehaviour
         EditorUtility.SetDirty(this);
     }
 
-    // ============================================
-    // ✅ ВИЗУАЛИЗАЦИЯ В РЕДАКТОРЕ
-    // ============================================
     void OnDrawGizmosSelected()
     {
         if (splineContainer == null || splineContainer.Spline == null) return;
@@ -310,8 +262,6 @@ public class CampfireGenerator : MonoBehaviour
         if (roadLength <= 1f) return;
 
         Gizmos.color = Color.yellow;
-
-        // Показываем все позиции для лагерей
         float spacing = startSpacing;
         float distance = spacing;
         int count = 0;
@@ -325,7 +275,6 @@ public class CampfireGenerator : MonoBehaviour
             {
                 Gizmos.DrawWireSphere(pos, 2f);
 
-                // Показываем смещение в стороны
                 Vector3 tangent = GetTangentOnSpline(t);
                 Vector3 right = Vector3.Cross(tangent, Vector3.up).normalized;
                 if (right.magnitude < 0.001f) right = Vector3.right;

@@ -142,7 +142,7 @@ RectTransform:
   m_GameObject: {fileID: 900926001724115985}
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 0.12, y: 0.12, z: 0.12}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 3882455978556228970}
@@ -559,11 +559,7 @@ MonoBehaviour:
   fireParticles: {fileID: 1422098443161338050}
   fireLight: {fileID: 3083637077980284947}
   activationDistance: 8
-  slowDownDistance: 15
-  approachSpeed: 1.8
-  exitSpeed: 2
-  slowDownTargetSpeed: 1
-  campDistanceOnRoad: 0
+  approachSpeed: 0.8
 --- !u!1 &5675389887797263699
 GameObject:
   m_ObjectHideFlags: 0
@@ -970,7 +966,7 @@ Transform:
   m_GameObject: {fileID: 8799329413417902839}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
-  m_LocalPosition: {x: 0, y: 0.5, z: 0.8}
+  m_LocalPosition: {x: 0, y: 0.5, z: 2.5}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

@@ -10,7 +10,12 @@ public class Campfire : MonoBehaviour
 
     [Header("Настройки")]
     public float activationDistance = 5f;
-    public float approachSpeed = 2f;
+    public float approachSpeed = 1.2f;
+    public float slowDownDistance = 10f;
+    public float slowDownTargetSpeed = 0.5f;
+
+    [Header("Настройки дороги")]
+    public float campDistanceOnRoad = 0f;
 
     private Transform player;
     private TrailWalker trailWalker;
@@ -28,9 +33,7 @@ public class Campfire : MonoBehaviour
     private Vector3 savedSitPosition;
     private Quaternion savedSitRotation;
 
-    // ============================================
-    // 🔥 КЛЮЧИ ДЛЯ СОХРАНЕНИЯ
-    // ============================================
+    // Сохранение
     private const string SAVE_KEY = "LastCampfireDistance";
     private const string SAVE_KEY_HAS_DATA = "HasCampfireSaveData";
 
@@ -40,9 +43,7 @@ public class Campfire : MonoBehaviour
         if (fireLight != null) fireLight.enabled = false;
         if (fireParticles != null) fireParticles.Stop();
 
-        // ============================================
-        // 🔥 ЗАГРУЗКА СОХРАНЁННОЙ ДИСТАНЦИИ
-        // ============================================
+        // Загрузка сохранения
         if (PlayerPrefs.HasKey(SAVE_KEY_HAS_DATA) && PlayerPrefs.GetInt(SAVE_KEY_HAS_DATA) == 1)
         {
             float savedDistance = PlayerPrefs.GetFloat(SAVE_KEY, 0f);
@@ -60,26 +61,43 @@ public class Campfire : MonoBehaviour
 
         float distance = Vector3.Distance(transform.position, player.position);
 
-        // ============================================
-        // АВТОМАТИЧЕСКИЙ ВХОД
-        // ============================================
-        if (!isResting && !isApproaching && !hasBeenUsed && distance < activationDistance)
+        // Плавное замедление
+        if (!isResting && !isApproaching && !hasBeenUsed)
         {
-            Debug.Log("[Campfire] 🔥 ВХОД В ЛАГЕРЬ!");
-            EnterCampfire();
+            if (distance < slowDownDistance && distance > activationDistance)
+            {
+                float t = (slowDownDistance - distance) / (slowDownDistance - activationDistance);
+                float targetSpeed = Mathf.Lerp(trailWalker.defaultWalkSpeed, slowDownTargetSpeed, t);
+                trailWalker.SetSpeed(Mathf.Max(targetSpeed, 0.3f));
+            }
+            else if (distance < activationDistance)
+            {
+                trailWalker.SetSpeed(0f);
+                EnterCampfire();
+            }
         }
 
-        // ============================================
-        // ВЫХОД ПО W
-        // ============================================
-        if (isResting && Input.GetKeyDown(KeyCode.W))
+        // Выход
+        if (isResting)
         {
-            ExitCampfire();
+            if (Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.UpArrow))
+            {
+                ExitCampfire();
+                return;
+            }
+            if (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began)
+            {
+                ExitCampfire();
+                return;
+            }
+            if (Input.GetMouseButtonDown(0))
+            {
+                ExitCampfire();
+                return;
+            }
         }
 
-        // ============================================
-        // АНИМАЦИЯ ПОДХОДА
-        // ============================================
+        // Анимация подхода
         if (isApproaching)
         {
             moveProgress += Time.deltaTime * approachSpeed;
@@ -100,11 +118,12 @@ public class Campfire : MonoBehaviour
     {
         if (isApproaching || isResting) return;
 
-        // Останавливаем движение
         if (trailWalker != null)
         {
+            // 1. Останавливаем скорость
             trailWalker.SetSpeed(0f);
-            trailWalker.enabled = false;
+            // 2. Включаем режим сидения в TrailWalker (это отключит притяжение к сплайну!)
+            trailWalker.SetSitting(true);
         }
 
         startPosition = player.position;
@@ -142,9 +161,7 @@ public class Campfire : MonoBehaviour
         isResting = true;
         hasBeenUsed = true;
 
-        // ============================================
-        // 🔥 СОХРАНЯЕМ ДИСТАНЦИЮ
-        // ============================================
+        // Сохранение дистанции
         if (trailWalker != null)
         {
             float currentDistance = trailWalker.GetCurrentDistance();
@@ -169,8 +186,15 @@ public class Campfire : MonoBehaviour
 
         if (trailWalker != null)
         {
-            trailWalker.enabled = true;
-            trailWalker.SetSpeed(trailWalker.defaultWalkSpeed);
+            // 1. Говорим шагоходу, что внутренняя дистанция теперь равна дистанции костра
+            trailWalker.SetDistance(campDistanceOnRoad);
+
+            // 2. Запускаем плавный возврат на дорогу!
+            // Персонаж физически дойдет от точки костра до сплайна, 
+            // и только потом продолжит путь по тропе.
+            trailWalker.StartReturningToRoad();
+
+            Debug.Log($"[Campfire] ➡️ Возврат на дорогу с дистанции: {campDistanceOnRoad:F1}m");
         }
 
         isResting = false;
@@ -188,11 +212,17 @@ public class Campfire : MonoBehaviour
         }
     }
 
-    public void Initialize(RoadGeneratorEditor generator, float distance) { }
+    public void Initialize(RoadGeneratorEditor generator, float distance)
+    {
+        campDistanceOnRoad = distance;
+        Debug.Log($"[Campfire] Инициализирован с дистанцией: {distance:F1}m");
+    }
 
-    // ============================================
-    // 🔥 ОЧИСТКА СОХРАНЕНИЯ (ДЛЯ ОТЛАДКИ)
-    // ============================================
+    public bool IsResting()
+    {
+        return isResting;
+    }
+
     [ContextMenu("Clear Save Data")]
     public void ClearSaveData()
     {

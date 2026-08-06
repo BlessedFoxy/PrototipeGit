@@ -32,6 +32,9 @@ public class CameraFollow : MonoBehaviour
     [Header("Наклон камеры")]
     [SerializeField] private float pitchAngle = 20f; //
 
+    [Header("Блокировка управления")]
+    public bool ignoreInput = false;
+
     private Vector3 currentVelocity = Vector3.zero;
     private float lastInputTime = 0f;
     private bool isReturning = false;
@@ -43,6 +46,7 @@ public class CameraFollow : MonoBehaviour
     private float currentSpeed = 2f;
     private float targetSpeed = 2f;
 
+    public bool isInventoryOpen = false;
     private void Start()
     {
         if (target == null)
@@ -97,15 +101,24 @@ public class CameraFollow : MonoBehaviour
 
     void Update()
     {
-        // ← ЕСЛИ ТАПНУЛИ ПО UI — КАМЕРА НЕ РЕАГИРУЕТ
-        if (IsPointerOverUI())
-        {
-            // Если был тач по UI — сбрасываем взаимодействие
-            isInteracting = false;
-            return;
-        }
+        if (isInventoryOpen) return;
 
-        if (target == null) return;
+        if (Input.GetMouseButtonDown(0))
+        {
+            Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+            RaycastHit hit;
+
+            if (Physics.Raycast(ray, out hit))
+            {
+                // ✅ Игнорируем клики по слоям Backpack и Items
+                int layer = hit.collider.gameObject.layer;
+                if (layer == LayerMask.NameToLayer("Backpack") ||
+                    layer == LayerMask.NameToLayer("Items"))
+                {
+                    return; // Ничего не делаем при клике на рюкзак или предмет
+                }
+            }
+        }
 
         HandleKeyboardInput();
         HandleTouchAndMouseInput();
@@ -149,8 +162,11 @@ public class CameraFollow : MonoBehaviour
 
     private void HandleTouchAndMouseInput()
     {
+        if (ignoreInput) return;
+
         bool isPressed = false;
         Vector2 currentPos = Vector2.zero;
+
 
         if (Input.touchCount > 0)
         {
@@ -263,6 +279,7 @@ public class CameraFollow : MonoBehaviour
 
         transform.LookAt(target.position + Vector3.up * 1.5f);
         transform.Rotate(Vector3.right, pitchAngle);
+        
     }
 
     public void SetAngle(float angle)
